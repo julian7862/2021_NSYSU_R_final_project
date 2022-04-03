@@ -1,0 +1,352 @@
+---
+title: 塔方雜貨店策略行銷
+author: 第5組
+date: "`r Sys.time()`"
+output: 
+  html_document:
+    highlight: pygments
+    theme: flatly
+    css: ../etc/style.css
+---
+
+安裝套件及載入資料
+```{r echo=T, message=F, cache=F, warning=F}
+rm(list=ls(all=TRUE))
+options(scipen=10)
+pacman::p_load(latex2exp,tidyr,caTools)
+pacman::p_load(FactoMineR, factoextra)
+pacman::p_load(Matrix, vcd, magrittr, readr, caTools, ggplot2, dplyr)
+load("data/tf5.rdata")
+B <- B
+```
+
+將資料進行第一步的篩選
+```{r}
+A0 <- subset(B,cust!="64439"&cust!="1480771"&cust!="1587104"&cust!="1626629"&cust!="1657692")
+```
+
+利用RFM進行顧客的分群，最終選擇六群為最佳分群
+```{r}
+set.seed(444)
+kmg = kmeans(scale(A0[,c(2,4,5)]),6)$cluster %>% factor
+table(kmg)
+df <- data.frame(grp=kmg)
+A0$grp <- df$grp
+```
+<br>
+
+```{r}
+A0[,c(2,4,5)] %>% PCA(graph=FALSE) %>% fviz_pca_biplot(
+  col.ind=df$grp,
+  label="var", pointshape=19, mean.point=F,
+  addEllipses=T, ellipse.level=0.7,
+  ellipse.type = "convex", palette="ucscgb",
+  repel=T
+  )
+```
+<br>
+
+透過營收繪製泡泡圖，泡泡大小為族群人數，泡泡顏色越紅其營收越高，而X軸為客單價，Y軸則為平均購買次數
+```{r}
+A0 %>% group_by(grp) %>% summarise(
+  Group.Size = n(),              # 族群人數
+  total.Rev = sum(rev),          # 總營收
+  avg.Freq = mean(f),            # 平均購買次數
+  avg.Revenue = sum(f*m)/sum(f)  # 平均客單價
+  ) %>% 
+  ggplot(aes(y=avg.Freq, x=avg.Revenue)) +
+  geom_point(aes(col=total.Rev, size=Group.Size), alpha=0.5) +
+  geom_text(aes(label=grp)) +
+  scale_size(range=c(5,25)) +
+  scale_color_gradient(low="green",high="red") +
+  theme_bw() + theme(legend.position="none") +
+  ggtitle("營收區隔特徵 (泡泡大小:族群人數)") + 
+  ylab("平均購買次數") + xlab("平均客單價")
+```
+<br>
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 族群特徵：</span><br>
+※ 族群1(沉睡顧客)<br>
+&emsp; &emsp; § 觀察：消費頻率低、消費金額低、許久未進行消費<br>
+&emsp; &emsp; § 推論：但由於人數是第二多的族群，如果將其喚醒，將會提升可觀的營業額<br>
+※ 族群2(無明顯價值顧客)<br>
+&emsp; &emsp; § 觀察：平均購買單價比第二名的族群3高出一倍，但平均購買次數低、前一次來購買的天數也長<br>
+&emsp; &emsp; § 推論：一次性顧客，且只為高單價的商品(例如：電器用品、奢侈品等)<br>
+※ 族群3(重要發展顧客)<br>
+&emsp; &emsp; § 觀察：消費頻率低、消費金額高、最近才剛消費<br>
+&emsp; &emsp; § 推論：這類型客戶在最近一筆訂單上花了很多錢，是必須重點式經營的客戶，讓他們再次關注品牌和產品<br>
+※ 族群4(忠誠顧客)<br>
+&emsp; &emsp; § 觀察：消費頻率高、消費金額中間、最近才剛消費<br>
+&emsp; &emsp; § 推論：這類型客戶是品牌最重要的資產，對品牌黏著度高、貢獻的消費額也大，需持續經營並適時刺激會員的消費單價<br>
+※ 族群5(一般價值顧客)<br>
+&emsp; &emsp; § 觀察：消費頻率低、消費金額中間、最近才剛消費<br>
+&emsp; &emsp; § 推論：這類型客戶算是貢獻的主力之一，但各項指標都沒有突出，唯一依靠的便是人數，屬於最大群的顧客，且有一定忠誠度<br>
+※ 族群6(無明顯價值顧客)<br>
+&emsp; &emsp; § 觀察：平均購買次數比第二名的族群4高出三倍，但平均購買單價低<br>
+&emsp; &emsp; § 推論：屬於大眾顧客之中購買必需品、日常消耗品的族群(例如:衛生紙、文具等)<br>
+</p class="wwl"><br>
+
+```{r}
+group_by(A0, grp) %>% summarise(mean(r),mean(s),mean(f),sum(rev),mean(m),sum(raw),avg.Revenue = sum(f*m)/sum(f))
+```
+
+
+```{r}
+A0 <- left_join(A0,B[,c(1,10)])
+group_by(A0, grp) %>% summarise(avg.Buy = mean(Buy,na.rm = T))
+```
+
+```{r}
+grp1 <- subset(A0,grp == "1")
+grp2 <- subset(A0,grp == "2")
+grp3 <- subset(A0,grp == "3")
+grp4 <- subset(A0,grp == "4")
+grp5 <- subset(A0,grp == "5")
+```
+
+#### 族群1 發放30元折價券→增加客單價及購買次數
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+此群顧客群已成沉睡顧客，因此就發放優惠券希望把握他們還會來的機會<br>
+個別成本NT$30<br>
+預期收入NT$25,860<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.25, b=21.5, a=43.5), 0, 50, lwd=2, ylim=c(0, 0.25),
+      main="F( x | m=0.25, b=21.5, a=43.5 )", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.25; b=21.5; a=43.5; x=30; margin = 0.2
+dp = DP(x,m,b,a)
+dp = ifelse(grp1$Buy+dp>1, 1-grp1$Buy, dp)
+eR = dp*grp1$Rev*margin - x
+hist(eR)
+```
+
+```{r}
+m=0.25; b=21.5; a=43.5; X = seq(0,100,1) ; margin = 0.2
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp1$Buy+dp>1, 1-grp1$Buy, dp)
+  eR = dp*grp1$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> r
+sum(eR) #25,860
+
+plotly::ggplotly(r)
+```
+
+#### 族群3(1) 與小網紅合作，拍＂開箱雜貨店＂企劃來宣傳及吸引流量→增加購買次數
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+預計花費約27萬邀請小網紅拍攝開箱文及發佈業配文，希望在他的頻道或社群軟體進行宣傳<br>
+個別成本NT$50<br>
+預期收入NT$175,152<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.25, b=37, a=50.5), 10, 80, lwd=2, ylim=c(0, 0.25),
+      main="F( x | m=0.25, b=37, a=50.5)", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.25; b=37; a=50.5; x=50 ; margin = 0.25
+dp = DP(x,m,b,a)
+dp = ifelse(grp3$Buy+dp>1, 1-grp3$Buy, dp)
+eR = dp*grp3$Rev*margin - x
+hist(eR)
+sum(eR)
+```
+
+```{r}
+m=0.25; b=37; a=50.5; X = seq(0,200,1); margin = 0.25
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp3$Buy+dp>1, 1-grp3$Buy, dp)
+  eR = dp*grp3$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> y
+sum(eR) #175,152
+
+plotly::ggplotly(y)
+```
+
+#### 族群3(2) 改善店內擺設裝潢，創造新鮮感→增加購買次數
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+預計裝潢店鋪費用為25萬元，透過新的裝潢創造新鮮感，吸引顧客前來消費<br>
+個別成本NT$48<br>
+預期收入NT$122,790<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.275, b=35, a=55), 0, 80, lwd=2, ylim=c(0, 0.3),
+      main="F( x | m=0.275, b=35, a=55)", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.275; b=35; a=55; x=48 ; margin = 0.2
+dp = DP(x,m,b,a)
+dp = ifelse(grp3$Buy+dp>1, 1-grp3$Buy, dp)
+eR = dp*grp3$Rev*margin - x
+hist(eR)
+sum(eR)
+```
+
+```{r}
+m=0.275; b=35; a=55; X = seq(0,200,1); margin = 0.2
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp3$Buy+dp>1, 1-grp3$Buy, dp)
+  eR = dp*grp3$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> y
+sum(eR) #122,790
+
+plotly::ggplotly(y)
+```
+
+#### 族群4 訂定線上團購活動→增加客單價至2000
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+在app推播線上團購僅需些許人力成本及網站維護攤銷費用(低成本)<br>
+個別成本NT$10<br>
+預期收入NT$28,542<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.3,b=10,a=20), 0, 30, lwd=2, ylim=c(0, 0.35),
+      main="F( x | m=0.3, b=10, a=20 )", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.3; b=10; a=20; x=10 ; margin = 0.25
+dp = DP(x,m,b,a)
+dp = ifelse(grp4$Buy+dp>1, 1-grp4$Buy, dp)
+eR = dp*grp4$Rev*margin - x
+hist(eR)
+```
+
+```{r}
+m=0.3; b=10; a=20; X = seq(0,100,1) ; margin = 0.25
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp4$Buy+dp>1, 1-grp4$Buy, dp)
+  eR = dp*grp4$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> q
+sum(eR) #28,542
+
+plotly::ggplotly(q)
+```
+
+#### 族群5(1) 單筆滿200集點兌換贈品活動→增加購買次數
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+集滿五點就發放贈品，贈品採大量批購(壓低成本)ex.當季零食組合包、襪子、輕便帆布<br>
+個別成本NT$46<br>
+預期收入NT$126,839<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.4,b=35,a=140), 0, 120, lwd=2, ylim=c(0, 0.4),
+      main="F( x | m=0.4, b=35, a=140 )", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.4; b=35; a=140; x=46; margin = 0.3
+dp = DP(x,m,b,a)
+dp = ifelse(grp5$Buy+dp>1, 1-grp5$Buy, dp)
+eR = dp*grp5$Rev*margin - x
+hist(eR)
+```
+
+```{r}
+m=0.4; b=35; a=140; X = seq(0,150,1); margin = 0.3
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp5$Buy+dp>1, 1-grp5$Buy, dp)
+  eR = dp*grp5$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> p
+sum(eR) #126,839
+
+plotly::ggplotly(p)
+```
+
+#### 族群5(2) 滿額外送（線上下單或電話）→增加購買次數
+<p class="wwl">
+<span style="font-size:20px">`r "\U1F4A1"` 行銷方案：</span><br>
+5公里內來回油錢<br>
+個別成本NT$26<br>
+預期收入NT$63,280<br>
+</p class="wwl"><br>
+```{r fig.height=2.2, fig.width=7}
+DP = function(x,m0,b0,a0) {m0*plogis((10/a0)*(x-b0))}
+
+par(mar=c(4,4,2,1),mfrow=c(1,2),cex=0.7)
+curve(DP(x,m=0.25,b=20,a=30), 0, 40, lwd=2, ylim=c(0, 0.3),
+      main="F( x | m=0.25, b=20, a=30 )", ylab="delta P")
+abline(h=seq(0,0.2,0.05),v=seq(0,30,5),col='lightgrey',lty=2)
+
+m=0.25; b=20; a=30; x=26; margin = 0.2
+dp = DP(x,m,b,a)
+dp = ifelse(grp5$Buy+dp>1, 1-grp5$Buy, dp)
+eR = dp*grp5$Rev*margin - x
+hist(eR)
+```
+
+```{r}
+m=0.25; b=20; a=30; X = seq(0,100,1); margin = 0.2
+sapply(X, function(x) {
+  dp = DP(x,m,b,a)
+  dp = ifelse(grp5$Buy+dp>1, 1-grp5$Buy, dp)
+  eR = dp*grp5$Rev*margin - x
+  c(x=x, eReturn=sum(eR), N=sum(eR > 0))
+  }) %>% t %>% data.frame %>% 
+  gather('key','value',-x) %>% 
+  ggplot(aes(x=x, y=value, col=key)) + 
+  geom_hline(yintercept=0,linetype='dashed') +
+  geom_line(size=1.5,alpha=0.5) + 
+  facet_wrap(~key,ncol=1,scales='free_y') + theme_bw() -> s
+sum(eR) #63,280
+
+plotly::ggplotly(s)
+```
+
+#### 原預期收入-還未執行任何行銷方案(整體毛利率假設0.15)<br>
+```{r}
+sum(A0$Rev*A0$Buy)*0.15 #3,017,121 
+```
